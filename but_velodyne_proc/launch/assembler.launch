@@ -1,0 +1,16 @@
+<launch>
+  <node pkg="but_velodyne_proc" type="cloud_assembler" name="but_velodyne_proc_cloud_assembler_node" output="screen">
+    <remap from="/but_velodyne_proc_cloud_assembler_node/points_in" to="/velodyne_points" />
+    <!-- <remap from="/but_velodyne_proc_cloudassembler_node/points_out" to="/my_points_out" /> -->
+    <!--param name="frame_id" value="/velodyne" /-->
+    <!--<param name="fixed_frame" type="string" value="base_link" /> /-->
+    <!--<param name="robot_frame" type="string" value="base_link" /> -->
+    <param name="min_z" type="double" value="-1.0"/>
+    <param name="max_z" type="double" value="0.0"/>
+    <param name="min_x" type="double" value="-2.0"/>
+    <param name="max_x" type="double" value="2.0"/>
+    <param name="min_y" type="double" value="-1.0"/>
+    <param name="max_y" type="double" value="2.0"/>
+    <param name="buffer_length" type="int" value="100"/>
+  </node>
+</launch>
