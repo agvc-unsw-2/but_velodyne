@@ -125,6 +125,12 @@ private:
   std::string fixed_frame_;
   std::string robot_frame_;
 
+  //TPointCloudPtr pcl_comb(new TPointCloud());
+  //TPointCloudPtr pcl_empty(new TPointCloud());
+  //int cloud_counter;
+
+  //TPointCloudPtr my_pcl_out(new TPointCloud());
+
 };
 
 

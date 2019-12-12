@@ -243,13 +243,16 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
   }
 
   if (update) cloud_buff_->push_back(*tpcl);
+  ROS_INFO("Done")
 
   if (points_pub_.getNumSubscribers() == 0)
   {
     return;
   }
 
+  ROS_INFO("Combining")
   *pcl_out += *tpcl;
+  ROS_INFO("Done")
 
   pcl::ApproximateVoxelGrid<TPoint> sor;
   sor.setInputCloud(pcl_out);
@@ -264,7 +267,7 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
 
   pcl::toROSMsg(*pcl_filt, *cloud_out);
 
-  //std::cout << "points: " << pcl_out->points.size() << std::endl;
+  std::cout << "points: " << pcl_out->points.size() << std::endl;
 
   cloud_out->header.stamp = cloud->header.stamp;
   cloud_out->header.frame_id = fixed_frame_;
