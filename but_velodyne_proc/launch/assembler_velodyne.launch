@@ -1,0 +1,7 @@
+<launch>
+  <node ns="velodyne" pkg="but_velodyne_proc" type="cloud_assembler" name="but_velodyne_proc_cloud_assembler_node" output="screen">
+    <remap from="/velodyne/but_velodyne_proc_cloud_assembler_node/points_in" to="/velodyne_combined" />
+    <remap from="/velodyne/but_velodyne_proc_cloud_assembler_node/points_out" to="/velodyne_out" />
+    <param name="buffer_length" type="int" value="100"/>
+  </node>
+</launch>
