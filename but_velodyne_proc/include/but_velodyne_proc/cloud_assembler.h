@@ -107,6 +107,7 @@ private:
   bool getRobotPose(ros::Time time, geometry_msgs::PoseStamped& res);
 
   int buffer_length_;
+  bool continuous_concat_;
   double dist_th_;
   double max_dist_th_;
 

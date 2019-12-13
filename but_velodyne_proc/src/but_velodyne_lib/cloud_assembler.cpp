@@ -60,11 +60,13 @@ CloudAssembler::CloudAssembler(ros::NodeHandle nh, ros::NodeHandle private_nh)
   max_z_(2),
   filter_cloud_res_(0.01),
   filter_cloud_k_(50),
-  filter_cloud_th_(1.0)
+  filter_cloud_th_(1.0),
+  continuous_concat_(false)
 
 {
 
   private_nh_.param("buffer_length", buffer_length_, buffer_length_);
+  private_nh_.param("continuous_concat",continuous_concat_,continuous_concat_);
   private_nh_.param<std::string>("fixed_frame", fixed_frame_, fixed_frame_);
   private_nh_.param<std::string>("robot_frame", robot_frame_, robot_frame_);
   private_nh_.param("dist_th", dist_th_, dist_th_);
@@ -81,6 +83,8 @@ CloudAssembler::CloudAssembler(ros::NodeHandle nh, ros::NodeHandle private_nh)
 
   // TODO add some checks for parameters
   ROS_INFO("Buffer length: %d",buffer_length_);
+  if(continuous_concat_)
+    ROS_INFO("continuously concating pointcloud");
 
   points_sub_filtered_.subscribe(private_nh_, "points_in", 1);
   tf_filter_ = new tf::MessageFilter<sensor_msgs::PointCloud2>(points_sub_filtered_, listener_, fixed_frame_, 1);
@@ -90,7 +94,6 @@ CloudAssembler::CloudAssembler(ros::NodeHandle nh, ros::NodeHandle private_nh)
 
 
   cloud_buff_.reset(new CloudBuffer(buffer_length_));
-
 
 
 }
@@ -136,28 +139,29 @@ bool CloudAssembler::getRobotPose(ros::Time time, geometry_msgs::PoseStamped& re
 void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
 {
   ROS_INFO_STREAM_ONCE("CloudAssembler::process(): Point cloud received");
+  bool update = false;
+  if(!continuous_concat_){
+    geometry_msgs::PoseStamped p;
+    if (!getRobotPose(cloud->header.stamp, p)) return;
 
-  geometry_msgs::PoseStamped p;
-
-  if (!getRobotPose(cloud->header.stamp, p)) return;
-
-  bool update = true;
-
-  double dist = sqrt(pow(robot_pose_.pose.position.x - p.pose.position.x, 2) + pow(robot_pose_.pose.position.y - p.pose.position.y, 2));
-
-  if (dist > dist_th_)
-  {
-
-    robot_pose_ = p;
-
-    if (dist > max_dist_th_)
+    double dist = sqrt(pow(robot_pose_.pose.position.x - p.pose.position.x, 2) + pow(robot_pose_.pose.position.y - p.pose.position.y, 2));
+    
+    if (dist > dist_th_)
     {
-      ROS_WARN("Step too great, clearing buffer");
-      cloud_buff_->clear();
-
+    
+      robot_pose_ = p;
+    
+      if (dist > max_dist_th_)
+      {
+        ROS_WARN("Step too great, clearing buffer");
+        cloud_buff_->clear();
+    
+      }
+      else update = true;
+    
     }
-    else update = true;
-
+  }else{
+    update = true;
   }
 
   VPointCloud vpcl;
@@ -165,16 +169,14 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
 
   // Retrieve the input point cloud
   pcl::fromROSMsg(*cloud, vpcl);
-
   pcl::copyPointCloud(vpcl, *tpcl);
 
   if(tpcl->points.size() == 0){
-    //ROS_INFO("point cloud empty");
+    ROS_INFO_THROTTLE(5,"Point cloud empty");
     return;
   }
 
   pcl::PassThrough< TPoint > pass;
-
   pass.setInputCloud(tpcl);
   pass.setFilterFieldName("x");
   pass.setFilterLimits(min_x_, max_x_);
@@ -191,18 +193,16 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
   pass.filter(*tpcl);
 
   if(tpcl->points.size() == 0){
-    //ROS_INFO("point cloud empty");
+    ROS_INFO_THROTTLE(5,"Point cloud empty");
     return;
   }
 
-  //ROS_INFO("Filtering Voxel");
   pcl::ApproximateVoxelGrid<TPoint> psor;
   psor.setInputCloud(tpcl);
   psor.setDownsampleAllData(false);
   psor.setLeafSize(filter_cloud_res_, filter_cloud_res_, filter_cloud_res_);
   psor.filter(*tpcl);
 
-  //ROS_INFO("Filtering Outlier");
   pcl::StatisticalOutlierRemoval< TPoint > foutl;
   foutl.setInputCloud(tpcl);
   foutl.setMeanK(filter_cloud_k_);
@@ -214,6 +214,10 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
   // get accumulated cloud
   TPointCloudPtr pcl_out(new TPointCloud());
   //ROS_INFO("CloudAssembler::process(): buffer len %d",cloud_buff_->size());
+  //if (cloud_counter<10){
+  //  cloud_buff_->at(i) = (cloud_buff_->at(i)+*tpcl);// TODO
+  //  cloud_counter++;
+  //}
   for (unsigned int i = 0; i < cloud_buff_->size(); i++)
   {
 
@@ -222,7 +226,7 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
   }
 
   // registration
-  if (false && cloud_buff_->size() > 0)
+  if (!continuous_concat_ && cloud_buff_->size() > 0)
   {
 
     pcl::IterativeClosestPoint< TPoint, TPoint> icp;
@@ -243,16 +247,14 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
   }
 
   if (update) cloud_buff_->push_back(*tpcl);
-  ROS_INFO("Done")
 
   if (points_pub_.getNumSubscribers() == 0)
   {
+    ROS_INFO_THROTTLE(5,"No subscribers");
     return;
   }
 
-  ROS_INFO("Combining")
   *pcl_out += *tpcl;
-  ROS_INFO("Done")
 
   pcl::ApproximateVoxelGrid<TPoint> sor;
   sor.setInputCloud(pcl_out);
@@ -267,7 +269,7 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
 
   pcl::toROSMsg(*pcl_filt, *cloud_out);
 
-  std::cout << "points: " << pcl_out->points.size() << std::endl;
+  ROS_INFO_THROTTLE(5,"Points:%d",pcl_out->points.size());
 
   cloud_out->header.stamp = cloud->header.stamp;
   cloud_out->header.frame_id = fixed_frame_;
