@@ -61,7 +61,8 @@ CloudAssembler::CloudAssembler(ros::NodeHandle nh, ros::NodeHandle private_nh)
   filter_cloud_res_(0.01),
   filter_cloud_k_(50),
   filter_cloud_th_(1.0),
-  continuous_concat_(false)
+  continuous_concat_(false),
+  packets_counter_(0)
 
 {
 
@@ -211,6 +212,17 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
 
   pcl_ros::transformPointCloud("odom", *tpcl, *tpcl, listener_);
 
+  packets_counter_++;
+  if(continuous_concat_){
+    if(packets_counter_ != buffer_length_){
+      ROS_INFO_THROTTLE(5,"pushing new pointcloud");
+      cloud_buff_->push_back(*tpcl);
+      return;
+    }else{
+      ROS_INFO_THROTTLE(5,"Updating");
+      packets_counter_ = 0;
+    }
+  }
   // get accumulated cloud
   TPointCloudPtr pcl_out(new TPointCloud());
   //ROS_INFO("CloudAssembler::process(): buffer len %d",cloud_buff_->size());
@@ -269,7 +281,7 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
 
   pcl::toROSMsg(*pcl_filt, *cloud_out);
 
-  ROS_INFO_THROTTLE(5,"Points:%d",pcl_out->points.size());
+  ROS_INFO_THROTTLE(5,"Points:%lu",pcl_out->points.size());
 
   cloud_out->header.stamp = cloud->header.stamp;
   cloud_out->header.frame_id = fixed_frame_;

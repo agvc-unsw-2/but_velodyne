@@ -1,4 +1,6 @@
 <launch>
+<!-- rosrun tf static_transform_publisher 0 0 0 0 0 0 odom base_link 100
+ -->
   <node ns="velodyne" pkg="but_velodyne_proc" type="cloud_assembler" name="but_velodyne_proc_cloud_assembler_node_velodyne" output="screen">
     <remap from="/velodyne/but_velodyne_proc_cloud_assembler_node_velodyne/points_in" to="/velodyne_points" />
     <remap from="/velodyne/but_velodyne_proc_cloud_assembler_node_velodyne/points_out" to="/velodyne_combined" />
