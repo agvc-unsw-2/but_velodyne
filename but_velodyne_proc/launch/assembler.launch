@@ -1,5 +1,5 @@
 <launch>
-<!-- rosrun tf static_transform_publisher 0 0 0 0 0 0 odom base_link 100
+<!-- rosrun tf static_transform_publisher 0 0 0 0 0 0 odom base_link 1000
  -->
   <node ns="velodyne" pkg="but_velodyne_proc" type="cloud_assembler" name="but_velodyne_proc_cloud_assembler_node_velodyne" output="screen">
     <remap from="/velodyne/but_velodyne_proc_cloud_assembler_node_velodyne/points_in" to="/velodyne_points" />
@@ -8,6 +8,6 @@
     <!--<param name="fixed_frame" type="string" value="base_link" /> /-->
     <!--<param name="robot_frame" type="string" value="base_link" /> -->
     <param name="continuous_concat" type="boolean" value="true"/>
-    <param name="buffer_length" type="int" value="100"/>
+    <param name="buffer_length" type="int" value="120"/>
   </node>
 </launch>

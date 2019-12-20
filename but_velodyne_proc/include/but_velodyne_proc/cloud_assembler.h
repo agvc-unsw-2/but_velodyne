@@ -88,6 +88,7 @@ public:
 
   //! Processes input Velodyne point cloud and publishes the output message
   virtual void process(const sensor_msgs::PointCloud2::ConstPtr &cloud);
+  virtual void assemble_raw(const sensor_msgs::PointCloud2::ConstPtr &cloud);
 
 private:
   //! Node handle
@@ -98,6 +99,7 @@ private:
   tf::MessageFilter<sensor_msgs::PointCloud2> * tf_filter_;
   ros::Subscriber points_sub_;
   ros::Publisher points_pub_;
+  ros::Publisher empty_pub_;
   tf::TransformListener listener_;
 
   boost::shared_ptr<CloudBuffer> cloud_buff_;
@@ -127,11 +129,6 @@ private:
   std::string fixed_frame_;
   std::string robot_frame_;
 
-  //TPointCloudPtr pcl_comb(new TPointCloud());
-  //TPointCloudPtr pcl_empty(new TPointCloud());
-  //int cloud_counter;
-
-  //TPointCloudPtr my_pcl_out(new TPointCloud());
 
 };
 

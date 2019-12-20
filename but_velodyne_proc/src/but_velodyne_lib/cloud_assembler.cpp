@@ -87,15 +87,21 @@ CloudAssembler::CloudAssembler(ros::NodeHandle nh, ros::NodeHandle private_nh)
   if(continuous_concat_)
     ROS_INFO("continuously concating pointcloud");
 
-  points_sub_filtered_.subscribe(private_nh_, "points_in", 1);
-  tf_filter_ = new tf::MessageFilter<sensor_msgs::PointCloud2>(points_sub_filtered_, listener_, fixed_frame_, 1);
-  tf_filter_->registerCallback(boost::bind(&CloudAssembler::process, this, _1));
+  //points_sub_filtered_.subscribe(private_nh_, "points_in", 1);
+  //this->sub = nh.subscribe (pointcloud_topic, 1, &BoxDetector::extract_boxes, this);
+  if(continuous_concat_){
+    points_sub_ = private_nh_.subscribe ("points_in", 1, &CloudAssembler::assemble_raw, this);
+  }else{
+    points_sub_filtered_.subscribe(private_nh_, "points_in", 1);
+    tf_filter_ = new tf::MessageFilter<sensor_msgs::PointCloud2>(points_sub_filtered_, listener_, fixed_frame_, 1);
+    tf_filter_->registerCallback(boost::bind(&CloudAssembler::process, this, _1));
+  }
 
   points_pub_ = private_nh_.advertise<sensor_msgs::PointCloud2> ("points_out", 1);
+  empty_pub_ = private_nh_.advertise<std_msgs::Empty> ("Point_cloud_update", 1);
 
 
   cloud_buff_.reset(new CloudBuffer(buffer_length_));
-
 
 }
 
@@ -137,33 +143,9 @@ bool CloudAssembler::getRobotPose(ros::Time time, geometry_msgs::PoseStamped& re
 
 }
 
-void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
-{
-  ROS_INFO_STREAM_ONCE("CloudAssembler::process(): Point cloud received");
-  bool update = false;
-  if(!continuous_concat_){
-    geometry_msgs::PoseStamped p;
-    if (!getRobotPose(cloud->header.stamp, p)) return;
-
-    double dist = sqrt(pow(robot_pose_.pose.position.x - p.pose.position.x, 2) + pow(robot_pose_.pose.position.y - p.pose.position.y, 2));
-    
-    if (dist > dist_th_)
-    {
-    
-      robot_pose_ = p;
-    
-      if (dist > max_dist_th_)
-      {
-        ROS_WARN("Step too great, clearing buffer");
-        cloud_buff_->clear();
-    
-      }
-      else update = true;
-    
-    }
-  }else{
-    update = true;
-  }
+void CloudAssembler::assemble_raw(const sensor_msgs::PointCloud2::ConstPtr &cloud){
+  std_msgs::Empty myMsg;
+  empty_pub_.publish(myMsg);
 
   VPointCloud vpcl;
   TPointCloudPtr tpcl(new TPointCloud());
@@ -171,13 +153,73 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
   // Retrieve the input point cloud
   pcl::fromROSMsg(*cloud, vpcl);
   pcl::copyPointCloud(vpcl, *tpcl);
+  // Buffer point clouds for coninous steam
+  packets_counter_++;
+  if(continuous_concat_){
+    if(packets_counter_ != buffer_length_){
+      //pcl_ros::transformPointCloud("odom", *tpcl, *tpcl, listener_);
+      //pcl_ros::transformPointCloud("odom", ros::Time(0), *tpcl, "base_link", *tpcl, listener_);
+      //ROS_INFO_THROTTLE(5,"pushing new pointcloud");
+      cloud_buff_->push_back(*tpcl);
+    }else{
+      TPointCloudPtr pcl_out(new TPointCloud());
+      for (unsigned int i = 0; i < cloud_buff_->size(); i++)
+      {
+        *pcl_out += cloud_buff_->at(i);
+      }
+      packets_counter_ = 0;
+      *pcl_out += *tpcl;
+      sensor_msgs::PointCloud2::Ptr cloud_out(new sensor_msgs::PointCloud2());
+      pcl::toROSMsg(*pcl_out, *cloud_out);
+      ROS_INFO_THROTTLE(5,"Points:%lu",pcl_out->points.size());
+      cloud_out->header.stamp = cloud->header.stamp;
+      cloud_out->header.frame_id = cloud->header.frame_id;
+      points_pub_.publish(cloud_out);
+    }
+  }
+}
+
+void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
+{
+  ROS_INFO_THROTTLE(5,"CloudAssembler::process(): Point cloud received");
+
+  geometry_msgs::PoseStamped p;
+
+  if (!getRobotPose(cloud->header.stamp, p)){
+    ROS_INFO_THROTTLE(5,"robot pose not found");
+    return;
+  }
+
+  bool update = false;
+
+  double dist = sqrt(pow(robot_pose_.pose.position.x - p.pose.position.x, 2) + pow(robot_pose_.pose.position.y - p.pose.position.y, 2));
+
+  if (dist > dist_th_)
+  {
+    robot_pose_ = p;
+    if (dist > max_dist_th_)
+    {
+      ROS_INFO_THROTTLE(5,"movement to great reseting");
+      cloud_buff_->clear();
+    }
+    else update = true;
+  }
+
+  VPointCloud vpcl;
+  TPointCloudPtr tpcl(new TPointCloud());
+
+  // Retrieve the input point cloud
+  pcl::fromROSMsg(*cloud, vpcl);
+
+  pcl::copyPointCloud(vpcl, *tpcl);
 
   if(tpcl->points.size() == 0){
-    ROS_INFO_THROTTLE(5,"Point cloud empty");
+    ROS_INFO_THROTTLE(5,"point cloud empty");
     return;
   }
 
   pcl::PassThrough< TPoint > pass;
+
   pass.setInputCloud(tpcl);
   pass.setFilterFieldName("x");
   pass.setFilterLimits(min_x_, max_x_);
@@ -194,7 +236,7 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
   pass.filter(*tpcl);
 
   if(tpcl->points.size() == 0){
-    ROS_INFO_THROTTLE(5,"Point cloud empty");
+    ROS_INFO_THROTTLE(5,"point cloud empty after filtering");
     return;
   }
 
@@ -212,24 +254,9 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
 
   pcl_ros::transformPointCloud("odom", *tpcl, *tpcl, listener_);
 
-  packets_counter_++;
-  if(continuous_concat_){
-    if(packets_counter_ != buffer_length_){
-      ROS_INFO_THROTTLE(5,"pushing new pointcloud");
-      cloud_buff_->push_back(*tpcl);
-      return;
-    }else{
-      ROS_INFO_THROTTLE(5,"Updating");
-      packets_counter_ = 0;
-    }
-  }
   // get accumulated cloud
   TPointCloudPtr pcl_out(new TPointCloud());
-  //ROS_INFO("CloudAssembler::process(): buffer len %d",cloud_buff_->size());
-  //if (cloud_counter<10){
-  //  cloud_buff_->at(i) = (cloud_buff_->at(i)+*tpcl);// TODO
-  //  cloud_counter++;
-  //}
+
   for (unsigned int i = 0; i < cloud_buff_->size(); i++)
   {
 
@@ -238,7 +265,7 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
   }
 
   // registration
-  if (!continuous_concat_ && cloud_buff_->size() > 0)
+  if (cloud_buff_->size() > 0)
   {
 
     pcl::IterativeClosestPoint< TPoint, TPoint> icp;
@@ -253,10 +280,10 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
       *tpcl = aligned;
       std::cout << "ICP score: " << icp.getFitnessScore() << std::endl;
 
-    }else{
-      std::cout << "ICP has not converged" << std::endl;
     }
+
   }
+
 
   if (update) cloud_buff_->push_back(*tpcl);
 
@@ -281,6 +308,7 @@ void CloudAssembler::process(const sensor_msgs::PointCloud2::ConstPtr &cloud)
 
   pcl::toROSMsg(*pcl_filt, *cloud_out);
 
+  //std::cout << "points: " << pcl_out->points.size() << std::endl;
   ROS_INFO_THROTTLE(5,"Points:%lu",pcl_out->points.size());
 
   cloud_out->header.stamp = cloud->header.stamp;
